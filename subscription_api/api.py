@@ -152,3 +152,139 @@ def create_subscription(data):
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Create Subscription API Error")
         return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def delete_subscription(subscription_id):
+    """
+    Delete a Subscription by ID.
+    """
+    try:
+        if not subscription_id:
+            return {"status": "error", "message": "Missing subscription_id"}
+
+        if not frappe.db.exists("Subscription", subscription_id):
+            return {
+                "status": "error",
+                "message": f"Subscription '{subscription_id}' does not exist",
+            }
+
+        # Load and delete the Subscription
+        sub_doc = frappe.get_doc("Subscription", subscription_id)
+        sub_doc.delete(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {
+            "status": "success",
+            "message": f"Subscription '{subscription_id}' deleted successfully",
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Delete Subscription API Error")
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def update_subscription(data):
+    """
+    Update a Subscription:
+    - company
+    - generate_invoice_at
+    - plans (create plan + item if not exist, replace old plans)
+    """
+    try:
+        if isinstance(data, str):
+            data = frappe.parse_json(data)
+
+        subscription_id = data.get("subscription_id")
+        if not subscription_id:
+            return {"status": "error", "message": "Missing 'subscription_id'"}
+
+        if not frappe.db.exists("Subscription", subscription_id):
+            return {
+                "status": "error",
+                "message": f"Subscription '{subscription_id}' does not exist",
+            }
+
+        subscription = frappe.get_doc("Subscription", subscription_id)
+
+        # Update company
+        if "company" in data:
+            subscription.company = data["company"]
+
+        # Update generate_invoice_at
+        if "generate_invoice_at" in data:
+            subscription.generate_invoice_at = data["generate_invoice_at"]
+
+        updated_plans = []
+        for plan_data in data.get("plans", []):
+            plan_name = plan_data.get("name")
+            item_code = plan_data.get("item_code")
+            quantity = plan_data.get("quantity", 1)
+
+            if not plan_name or not item_code:
+                return {
+                    "status": "error",
+                    "message": "Each plan must include 'name' and 'item_code'",
+                }
+
+            # Create Item if it doesn't exist
+            if not frappe.db.exists("Item", item_code):
+                item_doc = frappe.get_doc(
+                    {
+                        "doctype": "Item",
+                        "item_code": item_code,
+                        "item_name": plan_name,
+                        "item_group": "All Item Groups",
+                        "stock_uom": "Nos",
+                        "is_stock_item": 0,
+                        "disabled": 0,
+                        "description": f"Auto-generated item for {plan_name}",
+                    }
+                )
+                item_doc.insert(ignore_permissions=True)
+                frappe.db.commit()
+
+            # Create Subscription Plan if it doesn't exist
+            if not frappe.db.exists("Subscription Plan", plan_name):
+                plan_doc = frappe.get_doc(
+                    {
+                        "doctype": "Subscription Plan",
+                        "plan_name": plan_name,
+                        "name": plan_name,
+                        "item": item_code,
+                        "billing_interval": plan_data.get("billing_interval", "Month"),
+                        "billing_interval_count": plan_data.get(
+                            "billing_interval_count", 1
+                        ),
+                        "cost": plan_data.get("rate", 0.0),
+                        "price_determination": "Fixed Rate",
+                        "description": plan_data.get(
+                            "description", f"Auto-created plan for {plan_name}"
+                        ),
+                    }
+                )
+                plan_doc.insert(ignore_permissions=True)
+                frappe.db.commit()
+
+            # Add to updated plan list
+            updated_plans.append({"plan": plan_name, "qty": quantity})
+
+        # Replace existing plans
+        if updated_plans:
+            subscription.set("plans", [])  # clear
+            for plan in updated_plans:
+                subscription.append("plans", plan)
+
+        subscription.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {
+            "status": "success",
+            "message": f"Subscription '{subscription_id}' updated successfully",
+            "updated_plans": updated_plans,
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Update Subscription API Error")
+        return {"status": "error", "message": str(e)}
