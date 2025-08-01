@@ -12,6 +12,20 @@ def get_all_subscriptions():
         order_by="start_date desc"
     )
 
+@frappe.whitelist()
+def get_generate_invoice_options():
+    field = frappe.get_doc(
+        "DocField",
+        {
+            "fieldname": "generate_invoice_at",
+            "parent": "Subscription",  # Replace with actual parent DocType
+        },
+    )
+
+    options = field.options.split("\n") if field.options else []
+    return {"options": options}
+
+
 @frappe.whitelist(allow_guest=False)
 def get_party_type():
     """
