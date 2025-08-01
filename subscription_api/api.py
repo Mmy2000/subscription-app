@@ -37,6 +37,11 @@ def get_party_type():
         order_by="party_type"
     )
 
+
+def str_to_bool(value):
+    return str(value).lower() in ("true", "1", "yes")
+
+
 @frappe.whitelist(allow_guest=True)
 def create_subscription(data):
     """
@@ -147,12 +152,23 @@ def create_subscription(data):
                 "doctype": "Subscription",
                 "party_type": party_type,
                 "party": party_name,
-                "generate_invoice_at": "End of the current subscription period",
+                "generate_invoice_at": data.get(
+                    "generate_invoice_at", "End of the current subscription period"
+                ),
                 "start_date": data["start_date"],
                 "end_date": data["end_date"],
+                "trial_period_start": data.get("trial_period_start"),
+                "trial_period_end": data.get("trial_period_end"),
+                "days_until_due": data.get("days_until_due"),
+                "generate_new_invoices_past_due_date": str_to_bool(
+                    data.get("generate_new_invoices_past_due_date")
+                ),
+                "cancel_at_period_end": str_to_bool(data.get("cancel_at_period_end")),
+                "submit_invoice": str_to_bool(data.get("submit_invoice")),
                 "plans": [{"plan": plan_name, "qty": quantity}],
             }
         )
+
         subscription.insert(ignore_permissions=True)
         frappe.db.commit()
 
@@ -229,6 +245,17 @@ def update_subscription(data):
         # Update generate_invoice_at
         if "generate_invoice_at" in data:
             subscription.generate_invoice_at = data["generate_invoice_at"]
+
+        if "generate_new_invoices_past_due_date" in data:
+            subscription.generate_new_invoices_past_due_date = str_to_bool(data[
+                "generate_new_invoices_past_due_date"
+            ])
+
+        if "cancel_at_period_end" in data:
+            subscription.cancel_at_period_end = str_to_bool(data["cancel_at_period_end"])
+
+        if "submit_invoice" in data:
+            subscription.submit_invoice = str_to_bool(data["submit_invoice"])
 
         updated_plans = []
         for plan_data in data.get("plans", []):
